@@ -1,0 +1,530 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "The AWS CloudFormation template for this Serverless application",
+  "Resources": {
+    "ServerlessDeploymentBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ServerlessDeploymentBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "ServerlessDeploymentBucket"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":s3:::",
+                      {
+                        "Ref": "ServerlessDeploymentBucket"
+                      },
+                      "/*"
+                    ]
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":s3:::",
+                      {
+                        "Ref": "ServerlessDeploymentBucket"
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebhookLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/aws/lambda/serverless-github-bot-dev-webhook"
+      }
+    },
+    "ProcessorLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": "/aws/lambda/serverless-github-bot-dev-processor"
+      }
+    },
+    "IamRoleLambdaExecution": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": ["lambda.amazonaws.com"]
+              },
+              "Action": ["sts:AssumeRole"]
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": {
+              "Fn::Join": ["-", ["serverless-github-bot", "dev", "lambda"]]
+            },
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:CreateLogGroup",
+                    "logs:TagResource"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/serverless-github-bot-dev*:*"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["logs:PutLogEvents"],
+                  "Resource": [
+                    {
+                      "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/serverless-github-bot-dev*:*:*"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["dynamodb:Scan"],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["SQS:*"],
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": ["eventQueue", "Arn"]
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": ["SNS:*"],
+                  "Resource": [
+                    {
+                      "Ref": "eventTopic"
+                    }
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes"
+                  ],
+                  "Resource": [
+                    {
+                      "Fn::GetAtt": ["eventQueue", "Arn"]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "Path": "/",
+        "RoleName": {
+          "Fn::Join": [
+            "-",
+            [
+              "serverless-github-bot",
+              "dev",
+              {
+                "Ref": "AWS::Region"
+              },
+              "lambdaRole"
+            ]
+          ]
+        }
+      }
+    },
+    "WebhookLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Ref": "ServerlessDeploymentBucket"
+          },
+          "S3Key": "serverless/serverless-github-bot/dev/1722276909112-2024-07-29T18:15:09.112Z/serverless-github-bot.zip"
+        },
+        "Handler": "/opt/nodejs/node_modules/datadog-lambda-js/handler.handler",
+        "Runtime": "nodejs16.x",
+        "FunctionName": "serverless-github-bot-dev-webhook",
+        "MemorySize": 1024,
+        "Timeout": 6,
+        "Tags": [
+          {
+            "Key": "dd_sls_plugin",
+            "Value": "v5.67.0"
+          }
+        ],
+        "Environment": {
+          "Variables": {
+            "SNS_TOPIC_ARN": {
+              "Ref": "eventTopic"
+            },
+            "DD_API_KEY": "fa80ac9f51fcd2e199b852f1178891e6",
+            "DD_SITE": "datadoghq.com",
+            "DD_TRACE_ENABLED": true,
+            "DD_MERGE_XRAY_TRACES": false,
+            "DD_LOGS_INJECTION": false,
+            "DD_SERVERLESS_LOGS_ENABLED": true,
+            "DD_CAPTURE_LAMBDA_PAYLOAD": true,
+            "DD_SERVICE": "serverless-github-bot",
+            "DD_ENV": "dev",
+            "DD_LAMBDA_HANDLER": "handler.webhook"
+          }
+        },
+        "Role": {
+          "Fn::GetAtt": ["IamRoleLambdaExecution", "Arn"]
+        },
+        "Layers": [
+          "arn:aws:lambda:us-east-1:464622532012:layer:Datadog-Node16-x:112",
+          "arn:aws:lambda:us-east-1:464622532012:layer:Datadog-Extension:58"
+        ]
+      },
+      "DependsOn": ["WebhookLogGroup"]
+    },
+    "ProcessorLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Ref": "ServerlessDeploymentBucket"
+          },
+          "S3Key": "serverless/serverless-github-bot/dev/1722276909112-2024-07-29T18:15:09.112Z/serverless-github-bot.zip"
+        },
+        "Handler": "/opt/nodejs/node_modules/datadog-lambda-js/handler.handler",
+        "Runtime": "nodejs16.x",
+        "FunctionName": "serverless-github-bot-dev-processor",
+        "MemorySize": 1024,
+        "Timeout": 6,
+        "Tags": [
+          {
+            "Key": "dd_sls_plugin",
+            "Value": "v5.67.0"
+          }
+        ],
+        "Environment": {
+          "Variables": {
+            "DD_API_KEY": "fa80ac9f51fcd2e199b852f1178891e6",
+            "DD_SITE": "datadoghq.com",
+            "DD_TRACE_ENABLED": true,
+            "DD_MERGE_XRAY_TRACES": false,
+            "DD_LOGS_INJECTION": false,
+            "DD_SERVERLESS_LOGS_ENABLED": true,
+            "DD_CAPTURE_LAMBDA_PAYLOAD": true,
+            "DD_SERVICE": "serverless-github-bot",
+            "DD_ENV": "dev",
+            "DD_LAMBDA_HANDLER": "handler.processor"
+          }
+        },
+        "Role": {
+          "Fn::GetAtt": ["IamRoleLambdaExecution", "Arn"]
+        },
+        "Layers": [
+          "arn:aws:lambda:us-east-1:464622532012:layer:Datadog-Node16-x:112",
+          "arn:aws:lambda:us-east-1:464622532012:layer:Datadog-Extension:58"
+        ]
+      },
+      "DependsOn": ["ProcessorLogGroup"]
+    },
+    "WebhookLambdaVersion36bpntAUcZiEsELnGynYB1vQ2KXpctNRh7xrzu9VoeU": {
+      "Type": "AWS::Lambda::Version",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "WebhookLambdaFunction"
+        },
+        "CodeSha256": "5WfBGlyuOLQOwPZzcyb2ijrX7CWm/ngDxFhGKYbB2bs="
+      }
+    },
+    "ProcessorLambdaVersion4gxb3kcSwpj7RdE46r8Udht5ctToRLWrfbEl7d6oA": {
+      "Type": "AWS::Lambda::Version",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "ProcessorLambdaFunction"
+        },
+        "CodeSha256": "5WfBGlyuOLQOwPZzcyb2ijrX7CWm/ngDxFhGKYbB2bs="
+      }
+    },
+    "ProcessorEventSourceMappingSQSEventQueue": {
+      "Type": "AWS::Lambda::EventSourceMapping",
+      "DependsOn": ["IamRoleLambdaExecution"],
+      "Properties": {
+        "BatchSize": 1,
+        "EventSourceArn": {
+          "Fn::GetAtt": ["eventQueue", "Arn"]
+        },
+        "FunctionName": {
+          "Fn::GetAtt": ["ProcessorLambdaFunction", "Arn"]
+        },
+        "Enabled": true
+      }
+    },
+    "HttpApi": {
+      "Type": "AWS::ApiGatewayV2::Api",
+      "Properties": {
+        "Name": "dev-serverless-github-bot",
+        "ProtocolType": "HTTP"
+      }
+    },
+    "HttpApiStage": {
+      "Type": "AWS::ApiGatewayV2::Stage",
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "StageName": "$default",
+        "AutoDeploy": true,
+        "DefaultRouteSettings": {
+          "DetailedMetricsEnabled": false
+        }
+      }
+    },
+    "WebhookLambdaPermissionHttpApi": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Fn::GetAtt": ["WebhookLambdaFunction", "Arn"]
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:",
+              {
+                "Ref": "AWS::Partition"
+              },
+              ":execute-api:",
+              {
+                "Ref": "AWS::Region"
+              },
+              ":",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":",
+              {
+                "Ref": "HttpApi"
+              },
+              "/*"
+            ]
+          ]
+        }
+      }
+    },
+    "HttpApiIntegrationWebhook": {
+      "Type": "AWS::ApiGatewayV2::Integration",
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "IntegrationType": "AWS_PROXY",
+        "IntegrationUri": {
+          "Fn::GetAtt": ["WebhookLambdaFunction", "Arn"]
+        },
+        "PayloadFormatVersion": "2.0",
+        "TimeoutInMillis": 30000
+      }
+    },
+    "HttpApiRoutePostWebhook": {
+      "Type": "AWS::ApiGatewayV2::Route",
+      "Properties": {
+        "ApiId": {
+          "Ref": "HttpApi"
+        },
+        "RouteKey": "POST /webhook",
+        "Target": {
+          "Fn::Join": [
+            "/",
+            [
+              "integrations",
+              {
+                "Ref": "HttpApiIntegrationWebhook"
+              }
+            ]
+          ]
+        }
+      },
+      "DependsOn": "HttpApiIntegrationWebhook"
+    },
+    "eventTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "Subscription": [
+          {
+            "Protocol": "sqs",
+            "Endpoint": {
+              "Fn::GetAtt": ["eventQueue", "Arn"]
+            }
+          }
+        ]
+      }
+    },
+    "eventQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "serverless-github-bot-dev-event-queue"
+      }
+    },
+    "SnsToSqsPolicy": {
+      "Type": "AWS::SQS::QueuePolicy",
+      "Properties": {
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "Allow SNS publish to SQS",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "sns.amazonaws.com"
+              },
+              "Resource": {
+                "Fn::GetAtt": ["eventQueue", "Arn"]
+              },
+              "Action": "SQS:SendMessage",
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Ref": "eventTopic"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Queues": [
+          {
+            "Ref": "eventQueue"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "ServerlessDeploymentBucketName": {
+      "Value": {
+        "Ref": "ServerlessDeploymentBucket"
+      },
+      "Export": {
+        "Name": "sls-serverless-github-bot-dev-ServerlessDeploymentBucketName"
+      }
+    },
+    "DatadogMonitorwebhook": {
+      "Description": "See webhook in Datadog",
+      "Value": "https://app.datadoghq.com/functions?cloud=aws&entity_view=lambda_functions&selection=aws-lambda-functions%2Bserverless-github-bot-dev-webhook%2Bus-east-1%2B965664904606",
+      "Export": {
+        "Name": "sls-serverless-github-bot-dev-DatadogMonitorwebhook"
+      }
+    },
+    "DatadogMonitorprocessor": {
+      "Description": "See processor in Datadog",
+      "Value": "https://app.datadoghq.com/functions?cloud=aws&entity_view=lambda_functions&selection=aws-lambda-functions%2Bserverless-github-bot-dev-processor%2Bus-east-1%2B965664904606",
+      "Export": {
+        "Name": "sls-serverless-github-bot-dev-DatadogMonitorprocessor"
+      }
+    },
+    "WebhookLambdaFunctionQualifiedArn": {
+      "Description": "Current Lambda function version",
+      "Value": {
+        "Ref": "WebhookLambdaVersion36bpntAUcZiEsELnGynYB1vQ2KXpctNRh7xrzu9VoeU"
+      },
+      "Export": {
+        "Name": "sls-serverless-github-bot-dev-WebhookLambdaFunctionQualifiedArn"
+      }
+    },
+    "ProcessorLambdaFunctionQualifiedArn": {
+      "Description": "Current Lambda function version",
+      "Value": {
+        "Ref": "ProcessorLambdaVersion4gxb3kcSwpj7RdE46r8Udht5ctToRLWrfbEl7d6oA"
+      },
+      "Export": {
+        "Name": "sls-serverless-github-bot-dev-ProcessorLambdaFunctionQualifiedArn"
+      }
+    },
+    "HttpApiId": {
+      "Description": "Id of the HTTP API",
+      "Value": {
+        "Ref": "HttpApi"
+      },
+      "Export": {
+        "Name": "sls-serverless-github-bot-dev-HttpApiId"
+      }
+    },
+    "HttpApiUrl": {
+      "Description": "URL of the HTTP API",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "HttpApi"
+            },
+            ".execute-api.",
+            {
+              "Ref": "AWS::Region"
+            },
+            ".",
+            {
+              "Ref": "AWS::URLSuffix"
+            }
+          ]
+        ]
+      },
+      "Export": {
+        "Name": "sls-serverless-github-bot-dev-HttpApiUrl"
+      }
+    }
+  }
+}
